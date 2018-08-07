@@ -30,6 +30,7 @@ load(
 load(
     "@io_bazel_rules_go//go/private:providers.bzl",
     "GoLibrary",
+    "GoTest",
     "INFERRED_PATH",
     "get_archive",
 )
@@ -157,6 +158,10 @@ def _go_test_impl(ctx):
     return struct(
         providers = [
             test_archive,
+            GoTest(
+                internal = internal_archive,
+                external = external_archive,
+            ),
             DefaultInfo(
                 files = depset([executable]),
                 runfiles = runfiles,

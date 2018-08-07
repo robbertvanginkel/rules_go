@@ -92,7 +92,11 @@ def _stdlib_impl(ctx):
     go = go_context(ctx)
     library = go.new_library(go, resolver = _stdlib_library_to_source)
     source = go.library_to_source(go, ctx.attr, library, False)
-    return [source, library]
+    return [
+        source,
+        library,
+        source.stdlib,
+    ]
 
 stdlib = go_rule(
     _stdlib_impl,

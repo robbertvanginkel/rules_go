@@ -1,5 +1,5 @@
 load("@io_bazel_rules_go//go/private:rules/binary.bzl", "go_tool_binary")
-load("@io_bazel_rules_go//go:def.bzl", "go_source", "go_test")
+load("@io_bazel_rules_go//go:def.bzl", "go_source", "go_test", "go_binary")
 
 go_test(
     name = "filter_test",
@@ -152,6 +152,18 @@ go_tool_binary(
         "pack.go",
     ],
     visibility = ["//visibility:public"],
+)
+
+go_binary(
+    name = "package",
+    srcs = [
+        "env.go",
+        "filter.go",
+        "flags.go",
+        "package.go",
+    ],
+    visibility = ["//visibility:public"],
+    deps = ["@org_golang_x_tools//go/packages:go_default_library"],
 )
 
 go_tool_binary(

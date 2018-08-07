@@ -73,6 +73,13 @@ GoStdLib = provider()
 
 GoBuilders = provider()
 
+GoTest = provider(
+    fields = [
+        "internal",
+        "external",
+    ],
+)
+
 EXPLICIT_PATH = "explicit"
 
 INFERRED_PATH = "inferred"
