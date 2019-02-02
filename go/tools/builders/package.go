@@ -186,6 +186,14 @@ func buildStdlibPackages(args []string) error {
 	os.Setenv("GOROOT", abs(os.Getenv("GOROOT")))
 	os.Setenv("GOPACKAGESDRIVER", "off")
 
+	// go list only works with gocache. We cannot remove the go cache because go list's
+	// output will refer to generated files in the cache.
+	cachePath := filepath.Join(outPath, ".gocache")
+	os.Setenv("GOCACHE", cachePath)
+
+	// Make sure we have an absolute path to the C compiler.
+	os.Setenv("CC", abs(os.Getenv("CC")))
+
 	cfg := &packages.Config{
 		Mode: packages.LoadAllSyntax,
 	}

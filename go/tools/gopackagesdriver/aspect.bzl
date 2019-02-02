@@ -18,6 +18,10 @@ load(
     "go_context",
 )
 load(
+    "@io_bazel_rules_go//go/private:mode.bzl",
+    "extldflags_from_cc_toolchain",
+)
+load(
     "@io_bazel_rules_go//go/private:providers.bzl",
     "GoAspectProviders",
     "GoStdLib",
@@ -158,14 +162,14 @@ def _build_stdlib_package_files(go, target, ctx):
     inputs = target[GoStdLib].libs + [go.go]
     args = go.builder_args(go)
     args.add("-go", go.go)
-    args.add("-o", pkg_files)
+    args.add("-o", pkg_files.path)
     outputs = [pkg_files]
     env = go.env
     env.update({
-        "CC": go.cgo_tools.compiler_executable,
-        "CGO_CPPFLAGS": " ".join(go.cgo_tools.compiler_options),
-        "CGO_CFLAGS": " ".join(go.cgo_tools.c_options),
-        "CGO_LDFLAGS": " ".join(go.cgo_tools.linker_options),
+        "CC": go.cgo_tools.c_compiler_path,
+        "CGO_CPPFLAGS": " ".join(go.cgo_tools.cxx_compile_options),
+        "CGO_CFLAGS": " ".join(go.cgo_tools.c_compile_options),
+        "CGO_LDFLAGS": " ".join(extldflags_from_cc_toolchain(go)),
     })
     go.actions.run(
         inputs = inputs,
@@ -175,4 +179,8 @@ def _build_stdlib_package_files(go, target, ctx):
         arguments = ["stdlib", args],
         env = go.env,
     )
-    return [pkg_files]
+    # There's no way to find a go.declare_directory in the BES output,
+    # create a stub json file to find the dir the stdlib files ended up un.
+    stub = go.declare_file(go, name = "stdlib_magical_value", ext = ".txt")
+    go.actions.write(stub, "{}")
+    return [pkg_files, stub]

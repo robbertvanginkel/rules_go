@@ -17,8 +17,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
+	"go/types"
 	"io/ioutil"
 	"log"
 	"os"
@@ -34,8 +34,7 @@ import (
 
 var programName = filepath.Base(os.Args[0])
 
-const usageFmt = `Usage: %s list [-deps] [-test] [-export]
-		[-buildflag=flag...] -- patterns...
+const usageFmt = `Usage: %s patterns...
 
 Bazel gopackagesdriver gathers metadata about packages in a Bazel workspace
 and prints that information on stdout in json format. gopackagesdriver is
@@ -44,70 +43,60 @@ GOPACKAGESDRIVER environment variable is set.
 
 `
 
-func main() {
-	log.SetPrefix(programName + ": ")
-	log.SetFlags(0)
-	var cmd string
-	if len(os.Args) >= 2 {
-		cmd = os.Args[1]
-	}
-	switch cmd {
-	case "list":
-		resp, err := list(os.Args[2:])
-		if err != nil {
-			log.Fatal(err)
-		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(resp); err != nil {
-			log.Fatal(err)
-		}
-
-	case "help", "-h", "-help":
-		list([]string{"-h"})
-
-	default:
-		log.Fatalf("%s: unknown command. Run '%s help' for usage.", cmd, programName)
-	}
+// driverRequest copied from package
+type driverRequest struct {
+	Command    string            `json "command"`
+	Mode       packages.LoadMode `json:"mode"`
+	Env        []string          `json:"env"`
+	BuildFlags []string          `json:"build_flags"`
+	Tests      bool              `json:"tests"`
+	Overlay    map[string][]byte `json:"overlay"`
 }
 
-// copied from packages
+// driverResponse copied from package
 type driverResponse struct {
+	Sizes    *types.StdSizes
 	Roots    []string `json:",omitempty"`
 	Packages []*packages.Package
 }
 
-func list(args []string) (driverResponse, error) {
-	fs := flag.NewFlagSet(programName, flag.ExitOnError)
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, usageFmt, programName)
-		fs.PrintDefaults()
-	}
-	var needTests, needExport, needDeps bool
-	var buildFlags multiFlag
-	fs.BoolVar(&needTests, "test", false, "Whether test packages should be included")
-	fs.BoolVar(&needExport, "export", false, "Whether export data should be built")
-	fs.BoolVar(&needDeps, "deps", false, "Whether information about dependencies is needed")
-	fs.Var(&buildFlags, "buildflag", "Additional flags to pass to Bazel (may be repeated)")
-	if err := fs.Parse(args); err != nil {
-		return driverResponse{}, err
+func main() {
+	log.SetPrefix(programName + ": ")
+	log.SetFlags(0)
+
+	var record driverRequest
+	err := json.NewDecoder(os.Stdin).Decode(&record)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	patterns := fs.Args()
+	resp, err := list(record, os.Args[1:])
+	if err != nil {
+		log.Fatal(err)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(resp); err != nil {
+		log.Fatal(err)
+	}
+}
 
+func list(request driverRequest, args []string) (driverResponse, error) {
 	binDir, workspaceDir, execDir, err := getBazelDirs()
 	if err == noWorkspaceError {
-		return listFallback(needTests, needExport, needDeps, buildFlags, patterns)
+		return listFallback(request, args)
 	} else if err != nil {
 		return driverResponse{}, err
 	}
 
-	targets, err := queryTargets(buildFlags, patterns)
+	filesToQuery, patterns, stdlibPatterns := parsePatterns(os.Args[1:])
+
+	targets, err := queryTargets(workspaceDir, request.BuildFlags, filesToQuery, patterns)
 	if err != nil {
 		return driverResponse{}, err
 	}
 
-	files, err := buildPkgFiles(needDeps, needExport, needTests, buildFlags, targets)
+	files, err := buildPkgFiles(request.Mode, request.BuildFlags, targets, len(stdlibPatterns) > 0)
 	if err != nil {
 		return driverResponse{}, err
 	}
@@ -125,7 +114,9 @@ func list(args []string) (driverResponse, error) {
 	}
 
 	resp := driverResponse{
-		Roots:    targets,
+		// TODO: figure out what size we actually need and where to get them
+		Sizes:    &types.StdSizes{8, 8},
+		Roots:    append(targets, stdlibPatterns...),
 		Packages: pkgs,
 	}
 	return resp, nil
@@ -173,11 +164,21 @@ func getBazelDirs() (binDir, workspaceDir, execDir string, err error) {
 	return binDir, workspaceDir, execDir, nil
 }
 
-func queryTargets(buildFlags, patterns []string) ([]string, error) {
+func queryTargets(workspaceDir string, buildFlags, filesToQuery, patterns []string) ([]string, error) {
+	// to go from files -> targets, use same_pkg_direct_rdeps
+	// https://docs.bazel.build/versions/master/query-how-to.html#what-rule-target-s-contain-file-path-to-file-bar-java-as-a-sourc
+	var filesQuery = make([]string, 0)
+	for _, s := range filesToQuery {
+		filesQuery = append(filesQuery, "same_pkg_direct_rdeps("+strings.TrimPrefix(s, workspaceDir+"/")+")")
+	}
+
 	args := []string{"query"}
 	args = append(args, buildFlags...)
 	args = append(args, "--")
+	// TODO: should properly combine query params, this isn't necessarily valid. Works now because we only ever get either
+	// patterns or a file.
 	args = append(args, patterns...)
+	args = append(args, filesQuery...)
 	cmd := exec.Command("bazel", args...)
 	buf := &bytes.Buffer{}
 	cmd.Stdout = buf
@@ -203,9 +204,14 @@ func queryTargets(buildFlags, patterns []string) ([]string, error) {
 const (
 	aspectFileName  = "@io_bazel_rules_go//go/tools/gopackagesdriver:aspect.bzl"
 	outputGroupName = "gopackagesdriver"
+	stdlibTarget    = "@io_bazel_rules_go//:stdlib"
+
+	// TODO: find a better way to fetch the directory where the stdlib was build
+	// than using this file. Keep name in sync with what's in the aspect.
+	stdlibMarkerFilename = "stdlib_magical_value.txt"
 )
 
-func buildPkgFiles(needDeps, needExport, needTest bool, buildFlags, targets []string) ([]string, error) {
+func buildPkgFiles(mode packages.LoadMode, buildFlags, targets []string, buildStdlib bool) ([]string, error) {
 	logFile, err := ioutil.TempFile("", "gopackagesdriver")
 	if err != nil {
 		return nil, err
@@ -217,19 +223,22 @@ func buildPkgFiles(needDeps, needExport, needTest bool, buildFlags, targets []st
 	var b strings.Builder
 	b.WriteString(aspectFileName)
 	b.WriteString("%gopackagesdriver_")
-	if needDeps {
+	// TODO: figre out what aspect we need based on the mode
+	if true { // needDeps {
 		b.WriteString("deps_")
 	}
-	if needExport {
+	if true { // needExport {
 		b.WriteString("export_")
 	}
-	if needTest {
+	if true { // needTest {
 		b.WriteString("test_")
 	}
 	b.WriteString("aspect")
 	aspectName := b.String()
 	args := []string{
 		"build",
+		// "--nocheck_visibility", // TODO: figure out if needed, saw sporadic errors around //go/tools/builders:nogo_srcs
+		"--verbose_failures",
 		"-s",
 		"--spawn_strategy=standalone",
 		"--aspects=" + aspectName,
@@ -239,6 +248,9 @@ func buildPkgFiles(needDeps, needExport, needTest bool, buildFlags, targets []st
 	args = append(args, buildFlags...)
 	args = append(args, "--")
 	args = append(args, targets...)
+	if buildStdlib {
+		args = append(args, stdlibTarget)
+	}
 	cmd := exec.Command("bazel", args...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
@@ -333,6 +345,10 @@ func buildPkgFiles(needDeps, needExport, needTest bool, buildFlags, targets []st
 func loadPkgFiles(paths []string) ([]*packages.Package, error) {
 	var pkgs []*packages.Package
 	for _, path := range paths {
+		// TODO: figure out how to not rely on this magic value
+		if strings.HasSuffix(path, stdlibMarkerFilename) {
+			path = strings.TrimSuffix(path, stdlibMarkerFilename)
+		}
 		st, err := os.Stat(path)
 		if err != nil {
 			return nil, err
@@ -375,6 +391,12 @@ func loadPkgDir(pkgDirPath string) ([]*packages.Package, error) {
 		if info.IsDir() {
 			return nil
 		}
+		// TODO: the path that contains all the json files for the stdlib also contains the go cache
+		// that contains files that the stdlib json files refer to. These are not json files, so
+		// ignore them.
+		if strings.HasSuffix(path, stdlibMarkerFilename) || strings.Contains(path, ".gocache") {
+			return nil
+		}
 		pkg, err := loadPkgFile(path)
 		if err != nil {
 			return err
@@ -389,40 +411,47 @@ func loadPkgDir(pkgDirPath string) ([]*packages.Package, error) {
 }
 
 func absPkgPaths(pkg *packages.Package, workspaceDir, execDir string) {
+	// TODO: depending on packages from the repo, external repos or from the stdlib
+	// they end up here with different absolute or relative paths. This mapping works
+	// for now but should figure out something solid.
+	absPathIfNecessary := func(path string) string {
+		if strings.HasPrefix(path, "external/") {
+			return filepath.Join(execDir, path)
+		} else if !strings.HasPrefix(path, "/") {
+			return filepath.Join(workspaceDir, path)
+		}
+		return path
+	}
 	for i := range pkg.GoFiles {
-		pkg.GoFiles[i] = filepath.Join(workspaceDir, pkg.GoFiles[i])
+		pkg.GoFiles[i] = absPathIfNecessary(pkg.GoFiles[i])
 	}
 	for i := range pkg.CompiledGoFiles {
-		pkg.CompiledGoFiles[i] = filepath.Join(workspaceDir, pkg.CompiledGoFiles[i])
+		pkg.CompiledGoFiles[i] = absPathIfNecessary(pkg.CompiledGoFiles[i])
 	}
 	for i := range pkg.OtherFiles {
-		pkg.OtherFiles[i] = filepath.Join(workspaceDir, pkg.OtherFiles[i])
+		pkg.OtherFiles[i] = absPathIfNecessary(pkg.OtherFiles[i])
 	}
 	if pkg.ExportFile != "" {
-		pkg.ExportFile = filepath.Join(workspaceDir, pkg.ExportFile)
+		pkg.ExportFile = absPathIfNecessary(pkg.ExportFile)
 	}
 }
 
 var noWorkspaceError = errors.New("working directory is outside any Bazel workspace")
 
-func listFallback(needTests, needExport, needDeps bool, buildFlags []string, patterns []string) (driverResponse, error) {
+func listFallback(request driverRequest, patterns []string) (driverResponse, error) {
 	cfg := &packages.Config{
-		BuildFlags: buildFlags,
-		Tests:      needTests,
+		Mode:       request.Mode,
 		Env:        append(os.Environ(), "GOPACKAGESDRIVER=off"),
-	}
-	switch {
-	case needExport:
-		cfg.Mode = packages.LoadTypes
-	case needDeps:
-		cfg.Mode = packages.LoadImports
-	default:
-		cfg.Mode = packages.LoadFiles
+		BuildFlags: request.BuildFlags,
+		Tests:      request.Tests,
+		Overlay:    request.Overlay,
 	}
 	roots, err := packages.Load(cfg, patterns...)
 	if err != nil {
 		return driverResponse{}, nil
 	}
+
+	// TODO: I think we need sizes added here
 	resp := driverResponse{}
 	seen := make(map[*packages.Package]bool)
 	var visit func(*packages.Package)
@@ -456,4 +485,59 @@ func (m *multiFlag) String() string {
 func (m *multiFlag) Set(v string) error {
 	(*m) = append(*m, v)
 	return nil
+}
+
+func isStdlibPattern(pattern string) bool {
+	return strings.HasPrefix(pattern, "@io_bazel_rules_go//:stdlib%")
+}
+
+// mostly copied from goListDriver in packages, modified to detect bazel stdlib
+func parsePatterns(patterns []string) ([]string, []string, []string) {
+	// Determine files requested in contains patterns
+	var containFiles []string
+	restPatterns := make([]string, 0, len(patterns))
+	stdlibPatterns := make([]string, 0, len(patterns))
+	// Extract file= and other [querytype]= patterns. Report an error if querytype
+	// doesn't exist.
+extractQueries:
+	for _, pattern := range patterns {
+		eqidx := strings.Index(pattern, "=")
+		if eqidx < 0 {
+			if isStdlibPattern(pattern) {
+				stdlibPatterns = append(stdlibPatterns, pattern)
+			} else {
+				restPatterns = append(restPatterns, pattern)
+			}
+		} else {
+			query, value := pattern[:eqidx], pattern[eqidx+len("="):]
+			switch query {
+			case "file":
+				containFiles = append(containFiles, value)
+			case "pattern":
+				restPatterns = append(restPatterns, value)
+			case "iamashamedtousethedisabledqueryname": // old value, ignore
+				continue
+			case "": // not a reserved query
+				if isStdlibPattern(pattern) {
+					stdlibPatterns = append(stdlibPatterns, pattern)
+				} else {
+					restPatterns = append(restPatterns, pattern)
+				}
+			default:
+				for _, rune := range query {
+					if rune < 'a' || rune > 'z' { // not a reserved query
+						if isStdlibPattern(pattern) {
+							stdlibPatterns = append(stdlibPatterns, pattern)
+						} else {
+							restPatterns = append(restPatterns, pattern)
+						}
+						continue extractQueries
+					}
+				}
+				// Reject all other patterns containing "="
+				panic(fmt.Errorf("invalid query type %q in query pattern %q", query, pattern))
+			}
+		}
+	}
+	return containFiles, restPatterns, stdlibPatterns
 }
