@@ -101,3 +101,16 @@ func TestBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBuildWithoutStamp(t *testing.T) {
+	if err := bazel_testing.RunBazel("test", "--nostamp", ":all"); err != nil {
+		if eErr, ok := err.(*bazel_testing.StderrExitError); ok {
+			if eErr.Err.ExitCode() == 3 { // 3 is TEST_FAILED bazel exit code
+				return
+			}
+			t.Fatalf("expected tests to have failed (instead got exit code %d)", eErr.Err.ExitCode())
+		}
+		t.Fatal("expected bazel_testing.StderrExitError")
+	}
+	t.Fatal("expected error")
+}
