@@ -455,6 +455,8 @@ For example:
 
   $ bazel build --platforms=@io_bazel_rules_go//go/toolchain:linux_amd64 //cmd
 
+To cross-compile with cgo, add a _cgo suffix to the target platform. For
+example: ``--platforms=@io_bazel_rules_go//go/toolchain:linux_amd64_cgo``.  
 Platform-specific sources with build tags or filename suffixes are filtered
 automatically at compile time. You can selectively include platform-specific
 dependencies with ``select`` expressions (Gazelle does this automatically).
