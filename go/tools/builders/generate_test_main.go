@@ -65,6 +65,7 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -117,6 +118,18 @@ func testsInShard() []testing.InternalTest {
 }
 
 func main() {
+	if shouldWrap() {
+		err := wrap()
+		if xerr, ok := err.(*exec.ExitError); ok {
+			os.Exit(xerr.ExitCode())
+		} else if err != nil {
+			log.Print(err)
+			os.Exit(testWrapperAbnormalExit)
+		} else {
+			os.Exit(0)
+		}
+	}
+
 	// Check if we're being run by Bazel and change directories if so.
 	// TEST_SRCDIR and TEST_WORKSPACE are set by the Bazel test runner, so that makes a decent proxy.
 	testSrcdir := os.Getenv("TEST_SRCDIR")

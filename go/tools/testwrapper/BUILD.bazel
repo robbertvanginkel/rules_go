@@ -1,0 +1,6 @@
+# srcs are compiled into the test package with the generated testmain.
+filegroup(
+  name = "srcs",
+  srcs = glob(["*.go"]),
+  visibility = ["//visibility:public"],
+)
