@@ -109,6 +109,7 @@ def _go_test_impl(ctx):
         "-import",
         "l_test=" + external_source.library.importpath,
     )
+    arguments.add("-pkgname", internal_source.library.importpath)
     arguments.add_all(go_srcs, before_each = "-src", format_each = "l=%s")
     ctx.actions.run(
         inputs = go_srcs,

@@ -57,6 +57,7 @@ type Cases struct {
 	Examples   []Example
 	TestMain   string
 	Coverage   bool
+	Pkgname    string
 }
 
 const testMainTpl = `
@@ -119,7 +120,7 @@ func testsInShard() []testing.InternalTest {
 
 func main() {
 	if shouldWrap() {
-		err := wrap()
+		err := wrap("{{.Pkgname}}")
 		if xerr, ok := err.(*exec.ExitError); ok {
 			os.Exit(xerr.ExitCode())
 		} else if err != nil {
@@ -185,6 +186,7 @@ func genTestMain(args []string) error {
 	runDir := flags.String("rundir", ".", "Path to directory where tests should run.")
 	out := flags.String("output", "", "output file to write. Defaults to stdout.")
 	coverage := flags.Bool("coverage", false, "whether coverage is supported")
+	pkgname := flags.String("pkgname", "", "package name of test")
 	flags.Var(&imports, "import", "Packages to import")
 	flags.Var(&sources, "src", "Sources to process for tests")
 	if err := flags.Parse(args); err != nil {
@@ -235,6 +237,7 @@ func genTestMain(args []string) error {
 	cases := Cases{
 		RunDir:   strings.Replace(filepath.FromSlash(*runDir), `\`, `\\`, -1),
 		Coverage: *coverage,
+		Pkgname:  *pkgname,
 	}
 
 	testFileSet := token.NewFileSet()

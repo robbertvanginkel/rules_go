@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -42,14 +43,30 @@ func shouldWrap() bool {
 	return false
 }
 
-func wrap() error {
-	var stdoutBuf bytes.Buffer
+func wrap(pkg string) error {
+	var jsonBuffer bytes.Buffer
+	jsonConverter := NewConverter(&jsonBuffer, pkg, Timestamp)
+
 	args := append([]string{"-test.v"}, os.Args[1:]...)
 	cmd := exec.Command(os.Args[0], args...)
 	cmd.Env = append(os.Environ(), "GO_TEST_WRAP=0")
 	cmd.Stderr = os.Stderr
-	cmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	cmd.Stdout = io.MultiWriter(os.Stdout, jsonConverter)
 	err := cmd.Run()
-	// do something with stdoutBuf
+	jsonConverter.Close()
+	if out, ok := os.LookupEnv("XML_OUTPUT_FILE"); ok {
+		writeReport(jsonBuffer, pkg, out)
+	}
 	return err
+}
+
+func writeReport(jsonBuffer bytes.Buffer, pkg string, path string) {
+	xml, cerr := json2xml(&jsonBuffer, pkg)
+	if cerr != nil {
+		log.Printf("error converting test output to xml: %s", cerr)
+		return
+	}
+	if err := ioutil.WriteFile(path, xml, 0664); err != nil {
+		log.Printf("error writing test xml: %s", err)
+	}
 }
