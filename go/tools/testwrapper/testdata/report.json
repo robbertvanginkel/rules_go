@@ -20,10 +20,11 @@
 {"Action":"run","Test":"TestSubtests/another_subtest"}
 {"Action":"output","Test":"TestSubtests/another_subtest","Output":"=== RUN   TestSubtests/another_subtest\n"}
 {"Action":"output","Test":"TestSubtests","Output":"--- FAIL: TestSubtests (0.02s)\n"}
-{"Action":"output","Test":"TestSubtests/subtest_a","Output":"    --- FAIL: TestSubtests/subtest_a (0.00s)\n"}
+{"Action":"output","Test":"TestSubtests/subtest_a","Output":"    --- SKIP: TestSubtests/subtest_a (0.00s)\n"}
 {"Action":"output","Test":"TestSubtests/subtest_a","Output":"        test_test.go:29: from subtest subtest a\n"}
 {"Action":"output","Test":"TestSubtests/subtest_a","Output":"        test_test.go:31: from subtest subtest a\n"}
-{"Action":"fail","Test":"TestSubtests/subtest_a","Elapsed":0}
+{"Action":"output","Test":"TestSubtests/subtest_a","Output":"        test_test.go:33: skipping this test\n"}
+{"Action":"skip","Test":"TestSubtests/subtest_a","Elapsed":0}
 {"Action":"output","Test":"TestSubtests/testB","Output":"    --- PASS: TestSubtests/testB (0.01s)\n"}
 {"Action":"output","Test":"TestSubtests/testB","Output":"        test_test.go:29: from subtest testB\n"}
 {"Action":"output","Test":"TestSubtests/testB","Output":"        test_test.go:31: from subtest testB\n"}
@@ -35,13 +36,12 @@
 {"Action":"fail","Test":"TestSubtests","Elapsed":0.02}
 {"Action":"cont","Test":"TestPass"}
 {"Action":"output","Test":"TestPass","Output":"=== CONT  TestPass\n"}
-{"Action":"output","Test":"TestPass","Output":"--- PASS: TestPass (0.00s)\n"}
-{"Action":"pass","Test":"TestPass","Elapsed":0}
 {"Action":"cont","Test":"TestPassLog"}
 {"Action":"output","Test":"TestPassLog","Output":"=== CONT  TestPassLog\n"}
+{"Action":"output","Test":"TestPass","Output":"--- PASS: TestPass (0.00s)\n"}
+{"Action":"pass","Test":"TestPass","Elapsed":0}
 {"Action":"output","Test":"TestPassLog","Output":"--- PASS: TestPassLog (0.00s)\n"}
 {"Action":"output","Test":"TestPassLog","Output":"    test_test.go:19: pass\n"}
 {"Action":"pass","Test":"TestPassLog","Elapsed":0}
 {"Action":"output","Output":"FAIL\n"}
-{"Action":"output","Output":"FAIL\t_pkg\t1.081s\n"}
-{"Action":"fail","Elapsed":1.081}
+{"Action":"fail","Elapsed":0.03}

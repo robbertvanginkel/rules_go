@@ -157,7 +157,7 @@ func toXML(pkgName string, pkgDuration *float64, testcases map[string]*testCase)
 		case "skip":
 			suite.Skipped++
 			newCase.Skipped = &xmlMessage{
-				Message:  "Failed",
+				Message:  "Skipped",
 				Contents: c.output.String(),
 			}
 		case "fail":
