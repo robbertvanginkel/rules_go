@@ -16,6 +16,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -37,10 +38,8 @@ func shouldWrap() bool {
 		}
 		return wrap
 	}
-	if _, ok := os.LookupEnv("XML_OUTPUT_FILE"); ok {
-		return true
-	}
-	return false
+	_, ok := os.LookupEnv("XML_OUTPUT_FILE")
+	return ok
 }
 
 func wrap(pkg string) error {
@@ -55,18 +54,24 @@ func wrap(pkg string) error {
 	err := cmd.Run()
 	jsonConverter.Close()
 	if out, ok := os.LookupEnv("XML_OUTPUT_FILE"); ok {
-		writeReport(jsonBuffer, pkg, out)
+		werr := writeReport(jsonBuffer, pkg, out)
+		if werr != nil {
+			if err != nil {
+				return fmt.Errorf("error while generating testreport: %s, (error wrapping test execution: %s)", werr, err)
+			}
+			return fmt.Errorf("error while generating testreport: %s", werr)
+		}
 	}
 	return err
 }
 
-func writeReport(jsonBuffer bytes.Buffer, pkg string, path string) {
+func writeReport(jsonBuffer bytes.Buffer, pkg string, path string) error {
 	xml, cerr := json2xml(&jsonBuffer, pkg)
 	if cerr != nil {
-		log.Printf("error converting test output to xml: %s", cerr)
-		return
+		return fmt.Errorf("error converting test output to xml: %s", cerr)
 	}
 	if err := ioutil.WriteFile(path, xml, 0664); err != nil {
-		log.Printf("error writing test xml: %s", err)
+		return fmt.Errorf("error writing test xml: %s", err)
 	}
+	return nil
 }
