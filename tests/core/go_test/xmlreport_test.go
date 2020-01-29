@@ -17,6 +17,8 @@ package test_filter_test
 import (
 	"encoding/xml"
 	"io/ioutil"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bazelbuild/rules_go/go/tools/bazel_testing"
@@ -80,12 +82,16 @@ func Test(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected bazel test to have failed")
 	}
-	if xerr, ok := err.(*bazel_testing.StderrExitError); !ok {
+	if xerr, ok := err.(*bazel_testing.StderrExitError); !ok || xerr.Err.ExitCode() != 3 {
 		t.Fatalf("expected bazel tests to fail with exit code 3 (TESTS_FAILED), got: %s", err)
-	} else if xerr.Err.ExitCode() != 3 {
-		t.Fatalf("expected bazel tests to fail with exit code 3 (TESTS_FAILED), got: %s", xerr)
 	}
-	b, err := ioutil.ReadFile("bazel-out/darwin-fastbuild/testlogs/xml_test/test.xml")
+
+	p, err := bazel_testing.BazelOutput("info", "bazel-testlogs")
+	if err != nil {
+		t.Fatal("could not find testlog root: %s", err)
+	}
+	path := filepath.Join(strings.TrimSpace(string(p)), "xml_test/test.xml")
+	b, err := ioutil.ReadFile(path)
 	if err != nil {
 		t.Fatalf("could not read generated xml file: %s", err)
 	}
